@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Minuteur</title>
+<style>
+:root{--bg:#F4F5FB;--ink:#1B2338;--mute:#6B7390;--line:#D5DAE8;--acc:#3D4FE0;--accink:#fff;--warn:#E8A92B;--ok:#2E9E73}
+@media (prefers-color-scheme:dark){:root{--bg:#10142A;--ink:#EDF0FA;--mute:#9AA3C0;--line:#2C3556;--acc:#8C9BFF;--accink:#10142A;--warn:#F2C14E;--ok:#5CD0A3}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.4 "Atkinson Hyperlegible",Verdana,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:20px;text-align:center}
+body.brk{--acc:var(--ok)}
+.ring{position:relative;width:min(78vw,340px);aspect-ratio:1}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:10}
+.bg{stroke:var(--line)}
+.fg{stroke:var(--acc);stroke-linecap:round;transition:stroke-dashoffset .3s linear}
+.run .fg{stroke:var(--warn)}
+.done .fg{stroke:var(--ok)}
+.t{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#clock{font-size:clamp(3rem,18vw,5rem);font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+#lbl{color:var(--mute);margin-top:6px}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+button{font:inherit;color:inherit;border:2px solid var(--line);background:transparent;border-radius:14px;padding:12px 20px;min-height:48px;cursor:pointer}
+button.main{background:var(--acc);color:var(--accink);border-color:var(--acc);font-weight:700;min-width:170px;font-size:1.1rem}
+button:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+.chip[aria-pressed=true]{border-color:var(--acc);background:var(--acc);color:var(--accink)}
+.foot{color:var(--mute);font-size:.8rem}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="ring" id="ring">
+  <svg viewBox="0 0 200 200" aria-hidden="true"><circle class="bg" cx="100" cy="100" r="92"/><circle class="fg" id="fg" cx="100" cy="100" r="92" stroke-dasharray="578.05" stroke-dashoffset="0"/></svg>
+  <div class="t"><div id="clock" role="timer" aria-live="off">25:00</div><div id="lbl"></div></div>
+</div>
+<div class="row"><button class="main" id="go"></button><button id="plus"></button><button id="rst"></button></div>
+<div class="row" id="presets"></div>
+<div class="foot" id="foot"></div>
+<script>
+(function(){
+var L={
+fr:{start:"Démarrer",pause:"Pause",resume:"Reprendre",reset:"Réinitialiser",plus:"+5 min",focus:"Focus",brk:"Pause",done:"Terminé !",min:"min",foot:"L'écran reste allumé pendant le minuteur si ton navigateur le permet.",ready:"Prêt"},
+en:{start:"Start",pause:"Pause",resume:"Resume",reset:"Reset",plus:"+5 min",focus:"Focus",brk:"Break",done:"Done!",min:"min",foot:"The screen stays on while the timer runs if your browser allows it.",ready:"Ready"},
+de:{start:"Start",pause:"Pause",resume:"Weiter",reset:"Zurücksetzen",plus:"+5 Min.",focus:"Fokus",brk:"Pause",done:"Geschafft!",min:"Min.",foot:"Der Bildschirm bleibt während des Timers an, sofern dein Browser es erlaubt.",ready:"Bereit"}
+};
+var q=new URLSearchParams(location.search);
+var lang=(q.get("lang")||(navigator.language||"fr").slice(0,2)).toLowerCase();if(!L[lang])lang="fr";
+var T=L[lang];document.documentElement.lang=lang;
+var m=parseInt(q.get("m"),10);if(!(m>=1&&m<=180))m=25;
+var isBrk=q.get("break")==="1";
+var $=function(i){return document.getElementById(i)};
+var total=m*60,left=total,end=0,run=false,fin=false,lock=null,tick=null;
+function fmt(s){s=Math.max(0,Math.ceil(s));var h=Math.floor(s/3600),mm=Math.floor(s%3600/60),ss=s%60;
+  return (h?h+":"+("0"+mm).slice(-2):("0"+mm).slice(-2))+":"+("0"+ss).slice(-2)}
+function draw(){
+  $("clock").textContent=fmt(left);
+  $("fg").style.strokeDashoffset=578.05*(1-(total?left/total:0));
+  $("ring").className="ring"+(run?" run":"")+(fin?" done":"");
+  document.body.className=isBrk?"brk":"";
+  $("go").textContent=fin?T.start:(run?T.pause:(left<total?T.resume:T.start));
+  $("lbl").textContent=fin?T.done:(run?(isBrk?T.brk:T.focus):(left<total?T.pause:(isBrk?T.brk:T.focus)+" · "+Math.round(total/60)+" "+T.min));
+  document.title=run?fmt(left)+" – "+(isBrk?T.brk:T.focus):(fin?T.done:"Minuteur");
+}
+function beep(){try{var c=new (window.AudioContext||window.webkitAudioContext)();[0,.4,.8].forEach(function(d){var o=c.createOscillator(),g=c.createGain();o.frequency.value=660;g.gain.value=.2;o.connect(g);g.connect(c.destination);o.start(c.currentTime+d);o.stop(c.currentTime+d+.22)})}catch(e){}if(navigator.vibrate)navigator.vibrate([200,100,200])}
+function wl(on){try{if(on&&navigator.wakeLock){navigator.wakeLock.request("screen").then(function(l){lock=l}).catch(function(){})}else if(lock){lock.release();lock=null}}catch(e){}}
+function stop(){run=false;clearInterval(tick);wl(false)}
+function loop(){left=(end-Date.now())/1000;if(left<=0){left=0;stop();fin=true;beep()}draw()}
+$("go").onclick=function(){
+  if(fin){fin=false;left=total}
+  if(run){stop()}else{run=true;end=Date.now()+left*1000;wl(true);clearInterval(tick);tick=setInterval(loop,250)}
+  draw();
+};
+$("rst").onclick=function(){stop();fin=false;left=total;draw()};
+$("plus").onclick=function(){total+=300;left+=300;if(run)end+=300000;fin=false;draw()};
+function setPreset(min,brk){stop();fin=false;total=left=min*60;isBrk=brk;draw();chips()}
+function chips(){var p=$("presets");p.innerHTML="";
+  [[5,0],[15,0],[25,0],[45,0],[5,1]].forEach(function(a){var b=document.createElement("button");b.className="chip";
+    b.textContent=a[1]?T.brk+" "+a[0]:a[0]+" "+T.min;
+    b.setAttribute("aria-pressed",(total===a[0]*60&&isBrk===!!a[1])?"true":"false");
+    b.onclick=function(){setPreset(a[0],!!a[1])};p.appendChild(b)})}
+document.addEventListener("visibilitychange",function(){if(run){loop();if(document.visibilityState==="visible")wl(true)}});
+$("plus").textContent=T.plus;$("rst").textContent=T.reset;$("foot").textContent=T.foot;
+draw();chips();
+})();
+</script>
+</body>
+</html>
